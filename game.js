@@ -42,6 +42,88 @@ const damageFlash = document.getElementById("damage-flash");
 const resultTitle = document.getElementById("result-title");
 const resultText = document.getElementById("result-text");
 
+// ---- Procedural audio (Web Audio API, no asset files) ----
+// Kid-friendly and gentle: soft rounded tones, low master gain, smooth envelopes.
+// Fails silently if the AudioContext is unavailable or throws anywhere.
+let audioCtx = null;
+let masterGain = null;
+
+function getAudioCtx() {
+  if (audioCtx) return audioCtx;
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return null;
+    audioCtx = new Ctx();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.16; // low master so nothing is loud for a child
+    masterGain.connect(audioCtx.destination);
+  } catch (err) {
+    audioCtx = null;
+    masterGain = null;
+  }
+  return audioCtx;
+}
+
+// Resume on a user gesture (browsers start the context suspended).
+function resumeAudio() {
+  try {
+    const ctx = getAudioCtx();
+    if (ctx && ctx.state === "suspended") ctx.resume();
+  } catch (err) {
+    /* ignore — game stays silent */
+  }
+}
+
+// A short, gentle descending "pew". enemy=true drops the pitch a little.
+function playFire(enemy = false) {
+  try {
+    const ctx = getAudioCtx();
+    if (!ctx || ctx.state !== "running" || !masterGain) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = "triangle";
+    const start = enemy ? 540 : 680;
+    const end = enemy ? 220 : 300;
+    osc.frequency.setValueAtTime(start, now);
+    osc.frequency.exponentialRampToValueAtTime(end, now + 0.11);
+    // Smooth attack + exponential release, no clicks.
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(0.5, now + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.13);
+    osc.connect(g);
+    g.connect(masterGain);
+    osc.start(now);
+    osc.stop(now + 0.15);
+  } catch (err) {
+    /* ignore */
+  }
+}
+
+// A soft muffled low "thud/pop" rather than a sharp crack.
+function playImpact(fromPlayer = true) {
+  try {
+    const ctx = getAudioCtx();
+    if (!ctx || ctx.state !== "running" || !masterGain) return;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = "sine";
+    const f0 = fromPlayer ? 180 : 140;
+    osc.frequency.setValueAtTime(f0, now);
+    osc.frequency.exponentialRampToValueAtTime(f0 * 0.55, now + 0.12);
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.exponentialRampToValueAtTime(0.4, now + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+    osc.connect(g);
+    g.connect(masterGain);
+    osc.start(now);
+    osc.stop(now + 0.18);
+  } catch (err) {
+    /* ignore */
+  }
+}
+
 // ---- Renderer / scene / camera ----
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -49,8 +131,9 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0b0e1a);
-scene.fog = new THREE.Fog(0x0b0e1a, 40, 90);
+scene.background = new THREE.Color(0x20263f);
+// Slightly extended fog tinted to the horizon color so distance fades read naturally.
+scene.fog = new THREE.Fog(0x20263f, 45, 95);
 
 const camera = new THREE.PerspectiveCamera(72, 1, 0.1, 400);
 
@@ -64,10 +147,12 @@ window.addEventListener("resize", resize);
 resize();
 
 // ---- Lighting ----
-const hemi = new THREE.HemisphereLight(0x8899ff, 0x222233, 0.7);
+// Cool hemisphere fill (sky periwinkle / warm-dark ground) for gentle depth.
+const hemi = new THREE.HemisphereLight(0x9fb4ff, 0x2a2630, 0.65);
 scene.add(hemi);
 
-const dir = new THREE.DirectionalLight(0xffffff, 1.1);
+// Warm key light — single shadow caster to protect the frame budget.
+const dir = new THREE.DirectionalLight(0xfff2d6, 1.2);
 dir.position.set(30, 50, 20);
 dir.castShadow = true;
 dir.shadow.mapSize.set(2048, 2048);
@@ -79,25 +164,56 @@ dir.shadow.camera.near = 1;
 dir.shadow.camera.far = 120;
 scene.add(dir);
 
+// ---- Sky gradient dome ----
+// One inward-facing dome with a vertical vertex-color gradient: light periwinkle
+// at the top fading to the warm horizon color. No per-frame cost, sits behind the
+// arena so the menu backdrop camera still frames nicely.
+function buildSky() {
+  const geo = new THREE.SphereGeometry(180, 24, 16);
+  const top = new THREE.Color(0x6f7fc8);     // light periwinkle
+  const horizon = new THREE.Color(0x20263f); // matches fog/background
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i) / 180;              // -1 (bottom) .. 1 (top)
+    const t = THREE.MathUtils.clamp((y + 0.2) / 1.0, 0, 1);
+    c.copy(horizon).lerp(top, t);
+    colors[i * 3] = c.r;
+    colors[i * 3 + 1] = c.g;
+    colors[i * 3 + 2] = c.b;
+  }
+  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  const mat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false });
+  const dome = new THREE.Mesh(geo, mat);
+  scene.add(dome);
+}
+
 // ---- Arena geometry ----
 const obstacles = []; // { mesh, box:THREE.Box3, min/max for circle checks }
 
 function buildArena() {
-  // Floor
+  // Floor — dark cool base with a faint emissive tint so it reads as a tech floor.
   const floorGeo = new THREE.PlaneGeometry(ARENA * 2, ARENA * 2, 1, 1);
-  const floorMat = new THREE.MeshStandardMaterial({ color: 0x2a2d3a, roughness: 0.95, metalness: 0.05 });
+  const floorMat = new THREE.MeshStandardMaterial({
+    color: 0x2a2d3a, roughness: 0.85, metalness: 0.08,
+    emissive: 0x0d1430, emissiveIntensity: 0.4,
+  });
   const floor = new THREE.Mesh(floorGeo, floorMat);
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   scene.add(floor);
 
-  // Grid overlay
-  const grid = new THREE.GridHelper(ARENA * 2, 44, 0x3f4666, 0x2f3350);
+  // Grid overlay — soft glowing cyan lines.
+  const grid = new THREE.GridHelper(ARENA * 2, 44, 0x4f6bd8, 0x323a66);
   grid.position.y = 0.02;
   scene.add(grid);
 
-  // Boundary walls
-  const wallMat = new THREE.MeshStandardMaterial({ color: 0x3a4060, roughness: 0.8, metalness: 0.1 });
+  // Boundary walls — two-tone PBR body plus a thin glowing accent strip near the top.
+  const wallMat = new THREE.MeshStandardMaterial({ color: 0x3a4060, roughness: 0.6, metalness: 0.25 });
+  const wallTrimMat = new THREE.MeshStandardMaterial({
+    color: 0x5aa0ff, emissive: 0x5aa0ff, emissiveIntensity: 0.9, roughness: 0.4, metalness: 0.2,
+  });
   const wallDefs = [
     [0, -ARENA, ARENA * 2, 1],   // z-
     [0, ARENA, ARENA * 2, 1],    // z+
@@ -112,10 +228,21 @@ function buildArena() {
     m.receiveShadow = true;
     scene.add(m);
     registerObstacle(m, sx, sz);
+
+    // Decorative glowing strip near the top of the wall, slightly proud of the face.
+    // Not registered as an obstacle — purely visual.
+    const horizontal = sx > sz;
+    const trimGeo = horizontal
+      ? new THREE.BoxGeometry(sx * 0.98, 0.3, sz + 0.12)
+      : new THREE.BoxGeometry(sx + 0.12, 0.3, sz * 0.98);
+    const trim = new THREE.Mesh(trimGeo, wallTrimMat);
+    trim.position.set(x, WALL_H - 1.1, z);
+    scene.add(trim);
   }
 
-  // Cover crates / pillars scattered for tactical play
-  const coverMat = new THREE.MeshStandardMaterial({ color: 0x55608a, roughness: 0.7, metalness: 0.2 });
+  // Cover crates — friendly tech cubes with glowing edge trim.
+  const coverMat = new THREE.MeshStandardMaterial({ color: 0x55608a, roughness: 0.5, metalness: 0.3 });
+  const crateEdgeMat = new THREE.LineBasicMaterial({ color: 0x8fd0ff });
   const covers = [
     [-14, -10, 5, 5, 4],
     [12, 8, 6, 4, 5],
@@ -134,6 +261,11 @@ function buildArena() {
     m.receiveShadow = true;
     scene.add(m);
     registerObstacle(m, sx, sz);
+
+    // Glowing edge trim — cheapest option, LineSegments from EdgesGeometry.
+    // Child of the crate mesh so it rides along without extra bookkeeping.
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geo), crateEdgeMat);
+    m.add(edges);
   }
 }
 
@@ -146,7 +278,43 @@ function registerObstacle(mesh, sx, sz) {
     hz: sz / 2,
   });
 }
+
+// ---- Non-colliding arena decor (pure ambiance) ----
+// These meshes are added to the scene only. They are NEVER registered as
+// obstacles, so gameplay/collision is unchanged.
+function buildDecor() {
+  // A couple of glowing floor accent lanes just above the floor.
+  const laneMat = new THREE.MeshBasicMaterial({
+    color: 0x3d7fff, transparent: true, opacity: 0.35, fog: false,
+  });
+  const laneDefs = [
+    [0, 0, ARENA * 1.6, 0.35],   // long lane across X
+    [0, 0, 0.35, ARENA * 1.6],   // long lane across Z
+  ];
+  for (const [x, z, sx, sz] of laneDefs) {
+    const lane = new THREE.Mesh(new THREE.PlaneGeometry(sx, sz), laneMat);
+    lane.rotation.x = -Math.PI / 2;
+    lane.position.set(x, 0.03, z);
+    scene.add(lane);
+  }
+
+  // Four slim glowing corner pillars INSIDE the boundary walls — decoration only.
+  const pillarMat = new THREE.MeshStandardMaterial({
+    color: 0x3a4472, emissive: 0x3366cc, emissiveIntensity: 0.6, roughness: 0.5, metalness: 0.3,
+  });
+  const pillarGeo = new THREE.CylinderGeometry(0.6, 0.8, WALL_H + 2, 10);
+  const corner = ARENA - 3;
+  for (const [px, pz] of [[-corner, -corner], [corner, -corner], [-corner, corner], [corner, corner]]) {
+    const pil = new THREE.Mesh(pillarGeo, pillarMat);
+    pil.position.set(px, (WALL_H + 2) / 2, pz);
+    pil.castShadow = true;
+    scene.add(pil);
+  }
+}
+
+buildSky();
 buildArena();
+buildDecor();
 
 // ---- Collision helpers ----
 // Resolve a circle (radius r) at position p against all AABB obstacles.
@@ -218,8 +386,8 @@ function hasLineOfSight(ax, az, bx, bz) {
 // ---- Enemy model ----
 const enemyGroup = new THREE.Group();
 function buildEnemy() {
-  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xe03838, roughness: 0.5, metalness: 0.3, emissive: 0x330808 });
-  const headMat = new THREE.MeshStandardMaterial({ color: 0xff6a5a, roughness: 0.4, metalness: 0.3 });
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xe8443e, roughness: 0.45, metalness: 0.35, emissive: 0x3a0b0a });
+  const headMat = new THREE.MeshStandardMaterial({ color: 0xff7d6e, roughness: 0.4, metalness: 0.3 });
 
   const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.9, 1.6, 6, 14), bodyMat);
   torso.position.y = 2.0;
@@ -231,13 +399,36 @@ function buildEnemy() {
   head.castShadow = true;
   enemyGroup.add(head);
 
-  // "eye" to indicate facing direction
+  // "eye" to indicate facing direction — brighter so it clearly reads.
   const eye = new THREE.Mesh(
     new THREE.BoxGeometry(0.5, 0.18, 0.1),
-    new THREE.MeshStandardMaterial({ color: 0xffff66, emissive: 0xaa8800, emissiveIntensity: 1 })
+    new THREE.MeshStandardMaterial({ color: 0xffff66, emissive: 0xaa8800, emissiveIntensity: 1.6 })
   );
   eye.position.set(0, 3.55, 0.52);
   enemyGroup.add(eye);
+
+  // Friendly glossy details (parented to enemyGroup, move/rotate for free).
+  const trimMat = new THREE.MeshStandardMaterial({
+    color: 0x66e0ff, emissive: 0x66e0ff, emissiveIntensity: 1.3, roughness: 0.3, metalness: 0.4,
+  });
+  // Chest light.
+  const chest = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), trimMat);
+  chest.position.set(0, 2.3, 0.85);
+  enemyGroup.add(chest);
+  // Two antenna spheres on tiny stalks.
+  for (const ax of [-0.3, 0.3]) {
+    const antenna = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), trimMat);
+    antenna.position.set(ax, 4.15, 0);
+    enemyGroup.add(antenna);
+  }
+  // Rounded shoulder caps.
+  const shoulderMat = new THREE.MeshStandardMaterial({ color: 0xff7d6e, roughness: 0.4, metalness: 0.35 });
+  for (const sxp of [-0.95, 0.95]) {
+    const shoulder = new THREE.Mesh(new THREE.SphereGeometry(0.42, 14, 12), shoulderMat);
+    shoulder.position.set(sxp, 2.75, 0);
+    shoulder.castShadow = true;
+    enemyGroup.add(shoulder);
+  }
 
   // gun barrel pointing forward (+z local)
   const gun = new THREE.Mesh(
@@ -247,19 +438,42 @@ function buildEnemy() {
   gun.position.set(0.55, 2.1, 0.7);
   enemyGroup.add(gun);
 
+  // Subtle emissive muzzle tip on the barrel.
+  const muzzleTip = new THREE.Mesh(
+    new THREE.SphereGeometry(0.13, 10, 8),
+    new THREE.MeshStandardMaterial({ color: 0xffcc66, emissive: 0xffaa33, emissiveIntensity: 1.2 })
+  );
+  muzzleTip.position.set(0.55, 2.1, 1.45);
+  enemyGroup.add(muzzleTip);
+
   scene.add(enemyGroup);
 }
 buildEnemy();
 
 // ---- Bullets ----
 const bulletGeo = new THREE.SphereGeometry(0.14, 8, 6);
-const playerBulletMat = new THREE.MeshStandardMaterial({ color: 0x66ffcc, emissive: 0x33ffaa, emissiveIntensity: 1.4 });
-const enemyBulletMat = new THREE.MeshStandardMaterial({ color: 0xffaa33, emissive: 0xff7700, emissiveIntensity: 1.4 });
+const playerBulletMat = new THREE.MeshStandardMaterial({ color: 0x66ffcc, emissive: 0x33ffaa, emissiveIntensity: 2.0 });
+const enemyBulletMat = new THREE.MeshStandardMaterial({ color: 0xffaa33, emissive: 0xff7700, emissiveIntensity: 2.0 });
+// Shared tracer geometry (unit length along local Y; stretched/oriented per bullet).
+const tracerGeo = new THREE.CylinderGeometry(0.05, 0.05, 1, 6);
+const playerTracerMat = new THREE.MeshBasicMaterial({ color: 0x9effe0, transparent: true, opacity: 0.6, fog: false });
+const enemyTracerMat = new THREE.MeshBasicMaterial({ color: 0xffcc88, transparent: true, opacity: 0.6, fog: false });
 const bullets = []; // { mesh, vx, vz, x, z, y, life, fromPlayer }
 
 function spawnBullet(x, y, z, dx, dz, speed, fromPlayer) {
   const mesh = new THREE.Mesh(bulletGeo, fromPlayer ? playerBulletMat : enemyBulletMat);
   mesh.position.set(x, y, z);
+
+  // Glowing tracer streak, child of the bullet so it is removed automatically
+  // when scene.remove(b.mesh) runs. Oriented along the (constant) velocity.
+  const tracer = new THREE.Mesh(tracerGeo, fromPlayer ? playerTracerMat : enemyTracerMat);
+  tracer.scale.set(1, 2.2, 1); // length of the streak along its local +Y
+  // Cylinder's default axis is +Y; align it with the horizontal velocity direction.
+  const len0 = Math.hypot(dx, dz) || 1;
+  const dirVec = new THREE.Vector3(dx / len0, 0, dz / len0);
+  tracer.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dirVec);
+  mesh.add(tracer);
+
   scene.add(mesh);
   const len = Math.hypot(dx, dz) || 1;
   bullets.push({
@@ -276,6 +490,91 @@ function spawnBullet(x, y, z, dx, dz, speed, fromPlayer) {
 const muzzleLight = new THREE.PointLight(0xffffaa, 0, 10);
 scene.add(muzzleLight);
 let muzzleTimer = 0;
+
+// Shared visible muzzle flash mesh (bright emissive spike, hidden by default).
+const muzzleFlash = new THREE.Mesh(
+  new THREE.IcosahedronGeometry(0.5, 0),
+  new THREE.MeshBasicMaterial({ color: 0xfff1a8, transparent: true, opacity: 0.9, fog: false })
+);
+muzzleFlash.visible = false;
+scene.add(muzzleFlash);
+let muzzleFlashTimer = 0;
+
+function triggerMuzzleFlash(x, y, z) {
+  muzzleFlash.position.set(x, y, z);
+  muzzleFlash.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+  const s = 0.8 + Math.random() * 0.5;
+  muzzleFlash.scale.set(s, s, s);
+  muzzleFlash.visible = true;
+  muzzleFlashTimer = 0.06;
+}
+
+// ---- Impact effects (spark particles + expanding ring) ----
+// Tracked in effects[], updated each frame, removed+spliced when life ends.
+const effects = []; // { meshes:[], sparks:[{mesh,vx,vy,vz}], ring, life, maxLife }
+const ringGeo = new THREE.RingGeometry(0.15, 0.4, 20);
+const sparkGeo = new THREE.SphereGeometry(0.08, 6, 5);
+
+function spawnImpact(x, y, z, color) {
+  const life = 0.4;
+  const meshes = [];
+  const sparks = [];
+
+  // Expanding fading ring (material cloned per effect for independent opacity).
+  const ringMat = new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false, fog: false,
+  });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.position.set(x, y, z);
+  ring.lookAt(camera.position); // face the viewer
+  scene.add(ring);
+  meshes.push(ring);
+
+  // A handful of outward sparks.
+  const sparkMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1, fog: false });
+  const count = 7;
+  for (let i = 0; i < count; i++) {
+    const m = new THREE.Mesh(sparkGeo, sparkMat);
+    m.position.set(x, y, z);
+    scene.add(m);
+    meshes.push(m);
+    const theta = Math.random() * Math.PI * 2;
+    const phi = (Math.random() - 0.5) * Math.PI;
+    const sp = 6 + Math.random() * 5;
+    sparks.push({
+      mesh: m,
+      vx: Math.cos(theta) * Math.cos(phi) * sp,
+      vy: Math.abs(Math.sin(phi)) * sp * 0.8 + 1,
+      vz: Math.sin(theta) * Math.cos(phi) * sp,
+    });
+  }
+
+  effects.push({ meshes, sparks, ring, ringMat, sparkMat, life, maxLife: life });
+}
+
+function updateEffects(dt) {
+  for (let i = effects.length - 1; i >= 0; i--) {
+    const fx = effects[i];
+    fx.life -= dt;
+    const k = Math.max(0, fx.life / fx.maxLife); // 1 -> 0
+    const grow = 1 + (1 - k) * 3;
+    fx.ring.scale.set(grow, grow, grow);
+    fx.ringMat.opacity = 0.85 * k;
+    fx.sparkMat.opacity = k;
+    for (const s of fx.sparks) {
+      s.mesh.position.x += s.vx * dt;
+      s.mesh.position.y += s.vy * dt;
+      s.mesh.position.z += s.vz * dt;
+      s.vy -= 14 * dt; // gentle gravity
+    }
+    if (fx.life <= 0) {
+      for (const m of fx.meshes) scene.remove(m);
+      fx.ringMat.dispose();
+      fx.sparkMat.dispose();
+      effects.splice(i, 1);
+    }
+  }
+}
 
 // ---- Game state ----
 const state = {
@@ -308,6 +607,7 @@ function codeToKey(code) {
 
 window.addEventListener("keydown", (e) => {
   if (PREVENT.has(e.code)) e.preventDefault();
+  resumeAudio(); // first keydown is a user gesture; safe to call repeatedly
   const k = codeToKey(e.code);
   if (!k) return;
   const wasDown = keys[k];
@@ -363,6 +663,20 @@ function resetGame() {
   for (const b of bullets) scene.remove(b.mesh);
   bullets.length = 0;
 
+  // remove any leftover impact effect meshes so a restart leaves nothing behind
+  for (const fx of effects) {
+    for (const m of fx.meshes) scene.remove(m);
+    fx.ringMat.dispose();
+    fx.sparkMat.dispose();
+  }
+  effects.length = 0;
+
+  // reset shared flash state
+  muzzleFlash.visible = false;
+  muzzleFlashTimer = 0;
+  muzzleLight.intensity = 0;
+  muzzleTimer = 0;
+
   updateHUD();
 }
 
@@ -411,6 +725,8 @@ function playerShoot() {
   muzzleLight.position.set(sx, PLAYER_EYE, sz);
   muzzleLight.intensity = 3;
   muzzleTimer = 0.06;
+  triggerMuzzleFlash(sx, PLAYER_EYE - 0.2, sz);
+  playFire(false);
 
   if (p.ammo <= 0) startReload();
   updateHUD();
@@ -516,6 +832,8 @@ function updateEnemy(dt) {
       muzzleLight.position.set(sx, 2.3, sz);
       muzzleLight.intensity = 3;
       muzzleTimer = 0.06;
+      triggerMuzzleFlash(sx, 2.3, sz);
+      playFire(true);
     }
     e.targetX = p.x; e.targetZ = p.z;
   } else {
@@ -561,6 +879,10 @@ function updateBullets(dt) {
 
     if (tHit !== null) {
       consumed = true;
+      // Quieter neutral burst at the wall/obstacle hit point.
+      const hx = b.x + (nx - b.x) * tHit;
+      const hz = b.z + (nz - b.z) * tHit;
+      spawnImpact(hx, b.y, hz, 0xbfc8e6);
     } else {
       // Target hit checks (circle vs segment endpoint proximity)
       if (b.fromPlayer) {
@@ -569,6 +891,8 @@ function updateBullets(dt) {
           state.score += 10;
           flashHit();
           consumed = true;
+          spawnImpact(nx, b.y, nz, 0x66ffcc);
+          playImpact(true);
           if (e.hp <= 0) { endGame(true); return; }
           updateHUD();
         }
@@ -577,6 +901,8 @@ function updateBullets(dt) {
           p.hp -= ENEMY_DMG;
           flashDamage();
           consumed = true;
+          spawnImpact(nx, b.y, nz, 0xffaa33);
+          playImpact(false);
           if (p.hp <= 0) { endGame(false); return; }
           updateHUD();
         }
@@ -617,12 +943,24 @@ function loop(now) {
     updatePlayer(dt);
     updateEnemy(dt);
     updateBullets(dt);
+    // Gentle scale pulse on live bullets for a lively glow (visual only).
+    for (const b of bullets) {
+      const pulse = 1 + Math.sin((BULLET_LIFE - b.life) * 30) * 0.15;
+      b.mesh.scale.set(pulse, pulse, pulse);
+    }
   }
 
-  // Muzzle flash decay
+  // Impact effects advance/fade and clean themselves up.
+  updateEffects(dt);
+
+  // Muzzle flash decay (light + visible mesh)
   if (muzzleTimer > 0) {
     muzzleTimer -= dt;
     if (muzzleTimer <= 0) muzzleLight.intensity = 0;
+  }
+  if (muzzleFlashTimer > 0) {
+    muzzleFlashTimer -= dt;
+    if (muzzleFlashTimer <= 0) muzzleFlash.visible = false;
   }
 
   renderer.render(scene, camera);
@@ -631,6 +969,7 @@ requestAnimationFrame(loop);
 
 // ---- Start / end flow ----
 function startGame() {
+  resumeAudio(); // Start button click is a user gesture — unlocks audio
   resetGame();
   state.running = true;
   overlay.classList.add("hidden");
