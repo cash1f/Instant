@@ -55,8 +55,20 @@ function getAudioCtx() {
     if (!Ctx) return null;
     audioCtx = new Ctx();
     masterGain = audioCtx.createGain();
-    masterGain.gain.value = 0.16; // low master so nothing is loud for a child
+    masterGain.gain.value = 0.24; // gentle for a child, but clearly audible
     masterGain.connect(audioCtx.destination);
+
+    // Keep-alive: some output devices (Bluetooth, power-saving setups) sleep
+    // when no audio flows, and our sounds are too short to wake them in time,
+    // so they get swallowed. A continuous, inaudible tone keeps the output
+    // awake so short blips play instantly.
+    const keepAlive = audioCtx.createOscillator();
+    const keepGain = audioCtx.createGain();
+    keepGain.gain.value = 0.0005; // effectively silent, but non-zero signal
+    keepAlive.frequency.value = 20; // sub-audible
+    keepAlive.connect(keepGain);
+    keepGain.connect(audioCtx.destination);
+    keepAlive.start();
   } catch (err) {
     audioCtx = null;
     masterGain = null;
@@ -68,7 +80,7 @@ function getAudioCtx() {
 function resumeAudio() {
   try {
     const ctx = getAudioCtx();
-    if (ctx && ctx.state === "suspended") ctx.resume();
+    if (ctx && ctx.state !== "running" && ctx.resume) ctx.resume();
   } catch (err) {
     /* ignore — game stays silent */
   }
@@ -78,7 +90,11 @@ function resumeAudio() {
 function playFire(enemy = false) {
   try {
     const ctx = getAudioCtx();
-    if (!ctx || ctx.state !== "running" || !masterGain) return;
+    if (!ctx || !masterGain) return;
+    // The resume() from the user gesture may still be settling; nudge it and
+    // schedule the sound anyway. If the context genuinely can't run, the
+    // scheduled nodes are simply inaudible (no error).
+    if (ctx.state !== "running" && ctx.resume) ctx.resume();
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
     const g = ctx.createGain();
@@ -104,7 +120,8 @@ function playFire(enemy = false) {
 function playImpact(fromPlayer = true) {
   try {
     const ctx = getAudioCtx();
-    if (!ctx || ctx.state !== "running" || !masterGain) return;
+    if (!ctx || !masterGain) return;
+    if (ctx.state !== "running" && ctx.resume) ctx.resume();
     const now = ctx.currentTime;
     const osc = ctx.createOscillator();
     const g = ctx.createGain();

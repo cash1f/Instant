@@ -1,0 +1,8 @@
+# Kiro IDE config and AI-agent workflow artifacts
+# (editor/agent state, steering, hooks, and transient run outputs —
+#  not part of the shipped game)
+.kiro/
+.agents/
+
+# macOS / editor cruft
+.DS_Store

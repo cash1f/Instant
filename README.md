@@ -6,7 +6,11 @@ This is a project I built to share with my 7-year-old. It's something we can pla
 
 ## Built with Kiro IDE
 
-The best part: this whole game came together with just a few lines of conversation in [Kiro](https://kiro.dev), an AI-powered development environment. I described what I wanted, a 3D first-person shooter in an arena against a computer opponent with arrow keys and spacebar to shoot, and Kiro wrote the 3D scene, the player controls, the enemy AI, the shooting, and the collision logic. When something behaved oddly, like movement or shooting going the wrong direction, a quick note back and forth got it fixed. Going from an idea to a playable game took a handful of prompts, not hours of hand-writing code.
+This is really a learning project: an excuse to explore [Kiro](https://kiro.dev), an AI-powered development environment, and get a feel for building something real with AI agents. Nothing too serious, just a fun game that also happens to show what the workflow is like.
+
+The whole game came together through conversation. I described what I wanted, a 3D first-person shooter in an arena against a computer opponent with arrow keys and spacebar to shoot, and Kiro wrote the 3D scene, the player controls, the enemy AI, the shooting, and the collision logic. The interesting part was the back and forth: when the camera moved backward instead of forward, or the shooting felt off, or the sound was getting swallowed by a sleeping audio device, each one got diagnosed and fixed through a quick exchange rather than hours of hunting through code alone. Graphics polish and sound effects were added the same way, by describing the goal and letting the agents do the work. Going from an idea to a playable, decent-looking game took a handful of prompts across an afternoon.
+
+If you're curious about AI-assisted development, this repo is a small, honest example of what that looks like, bugs, fixes, and all.
 
 ## How to play
 
@@ -21,6 +25,8 @@ The best part: this whole game came together with just a few lines of conversati
 | R | Reload your gun |
 
 The goal is simple: hit the red robot before it hits you. Hide behind the boxes, pop out, take a shot, and duck back. Watch the health bars at the top, green is you, red is the enemy.
+
+The arena has a gradient sky, warm lighting, glowing bullet tracers, muzzle flashes, and little spark bursts when a shot lands. There are gentle sound effects too: a soft tone when you fire and a quiet thump when something gets hit, all kept low and kid-friendly. Sound turns on the first time you click or press a key, which is just how web browsers work.
 
 ## Playing it with a kid
 
@@ -53,6 +59,12 @@ Three small files, nothing fancy:
 
 It's built with [Three.js](https://threejs.org/), a popular open-source library for making 3D graphics in the browser. The library loads automatically from the internet the first time you play, so you'll want to be online.
 
+(You won't see `.kiro/` or `.agents/` folders in this repo, they're in `.gitignore`. Those hold Kiro's local editor config and the AI agents' working files, which are specific to how the project was built, not part of the game itself.)
+
 ## A note for the grown-up
 
 This started as a vibe-coding experiment in Kiro IDE and turned into something genuinely fun to share. Feel free to tinker, change the colors in `style.css`, make the arena bigger in `game.js` (look for the `ARENA` number near the top), or add more crates to hide behind. Even easier, open the project in Kiro and just describe the change you want. Breaking things and fixing them together is half the fun.
+
+---
+
+Created with [Kiro](https://kiro.dev), an AI-powered development environment.
