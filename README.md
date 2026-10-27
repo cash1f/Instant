@@ -4,6 +4,8 @@ A fun little 3D first-person arena shooter that runs right in your web browser. 
 
 This is a project I built to share with my 7-year-old. It's something we can play together on a game we made ourselves, which is pretty special when you think about it. You move around a 3D arena, duck behind crates for cover, and go head-to-head with a computer opponent. First one to run out of health loses.
 
+![The start menu](screenshots/menu.png)
+
 ## Built with Kiro IDE
 
 This is really a learning project: an excuse to explore [Kiro](https://kiro.dev), an AI-powered development environment, and get a feel for building something real with AI agents. Nothing too serious, just a fun game that also happens to show what the workflow is like.
@@ -27,6 +29,12 @@ If you're curious about AI-assisted development, this repo is a small, honest ex
 The goal is simple: hit the red robot before it hits you. Hide behind the boxes, pop out, take a shot, and duck back. Watch the health bars at the top, green is you, red is the enemy.
 
 The arena has a gradient sky, warm lighting, glowing bullet tracers, muzzle flashes, and little spark bursts when a shot lands. There are gentle sound effects too: a soft tone when you fire and a quiet thump when something gets hit, all kept low and kid-friendly. Sound turns on the first time you click or press a key, which is just how web browsers work.
+
+Facing off against the red robot, and a look across the arena:
+
+![Squaring up against the enemy robot](screenshots/gameplay-1.png)
+
+![A view across the arena and its cover crates](screenshots/gameplay-2.png)
 
 ## Playing it with a kid
 
