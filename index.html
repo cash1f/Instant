@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Arena Strike — 3D FPS</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="game-canvas"></canvas>
+
+    <!-- HUD -->
+    <div id="hud" class="hidden">
+      <div id="crosshair">
+        <span class="ch-line ch-v"></span>
+        <span class="ch-line ch-h"></span>
+      </div>
+
+      <div id="top-bar">
+        <div class="stat-block">
+          <div class="stat-label">YOU</div>
+          <div class="bar-outer"><div id="player-health" class="bar-inner player"></div></div>
+        </div>
+        <div id="score-block">
+          <div class="score-label">SCORE</div>
+          <div id="score">0</div>
+        </div>
+        <div class="stat-block">
+          <div class="stat-label">ENEMY</div>
+          <div class="bar-outer"><div id="enemy-health" class="bar-inner enemy"></div></div>
+        </div>
+      </div>
+
+      <div id="bottom-bar">
+        <div id="ammo">
+          <span id="ammo-count">12</span><span class="ammo-max">/ 12</span>
+        </div>
+        <div id="reload-hint" class="hidden">RELOADING…</div>
+      </div>
+
+      <div id="hit-flash"></div>
+      <div id="damage-flash"></div>
+    </div>
+
+    <!-- Start / End overlays -->
+    <div id="overlay" class="overlay">
+      <div class="overlay-card">
+        <h1 class="title">ARENA STRIKE</h1>
+        <p class="subtitle">3D First-Person Arena Duel</p>
+        <div class="controls">
+          <div class="ctrl-row"><span class="key">↑</span><span class="key">↓</span><span>Move forward / back</span></div>
+          <div class="ctrl-row"><span class="key">←</span><span class="key">→</span><span>Turn left / right</span></div>
+          <div class="ctrl-row"><span class="key wide">Space</span><span>Shoot</span></div>
+          <div class="ctrl-row"><span class="key">R</span><span>Reload</span></div>
+          <div class="ctrl-row"><span class="key">A</span><span class="key">D</span><span>Strafe (optional)</span></div>
+        </div>
+        <button id="start-btn" class="btn">START MATCH</button>
+        <p class="hint">Defeat the enemy before it defeats you.</p>
+      </div>
+    </div>
+
+    <div id="end-overlay" class="overlay hidden">
+      <div class="overlay-card">
+        <h1 id="result-title" class="title">VICTORY</h1>
+        <p id="result-text" class="subtitle"></p>
+        <button id="restart-btn" class="btn">PLAY AGAIN</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+  <script type="module" src="game.js"></script>
+</body>
+</html>
